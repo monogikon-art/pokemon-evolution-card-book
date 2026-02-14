@@ -577,11 +577,17 @@
     }
 
     /* ── Print button (top-right) ── */
-    .print-btn {
+    .toolbar {
       position: fixed;
       top: 4mm;
       right: 4mm;
       z-index: 200;
+      display: flex;
+      gap: 2mm;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .toolbar-btn {
       padding: 2.5mm 5mm;
       border: 2px solid #e74645;
       border-radius: 10mm;
@@ -593,11 +599,15 @@
       cursor: pointer;
       box-shadow: 0 1mm 3mm rgba(0,0,0,0.12);
       transition: transform 120ms, box-shadow 120ms;
+      white-space: nowrap;
     }
-    .print-btn:hover {
+    .toolbar-btn:hover {
       transform: translateY(-0.5mm);
       box-shadow: 0 2mm 4mm rgba(0,0,0,0.18);
     }
+    .toolbar-btn.green { border-color: #3fa34d; }
+    .toolbar-btn.blue  { border-color: #4d9de0; }
+    #import-file { display: none; }
 
     /* ── Save indicator ── */
     .save-indicator {
@@ -625,7 +635,7 @@
       }
       .tabs { display: none; }
       .search-bar { display: none; }
-      .print-btn { display: none !important; }
+      .toolbar  { display: none !important; }
       .save-indicator { display: none !important; }
       .template-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .tcg-card { break-inside: avoid; }
@@ -827,7 +837,12 @@
   </style>
 </head>
 <body>
-  <button class="print-btn" id="print-btn" onclick="window.print()">🖨️ Print Blank Template</button>
+  <div class="toolbar">
+    <button class="toolbar-btn" onclick="window.print()">🖨️ Print</button>
+    <button class="toolbar-btn green" id="export-btn">📥 Save to Excel</button>
+    <button class="toolbar-btn blue" id="import-btn">📤 Load from Excel</button>
+    <input type="file" id="import-file" accept=".xlsx,.xls">
+  </div>
   <div class="save-indicator" id="save-indicator">Saved ✓</div>
   <section class="page">
     <header>
@@ -2490,6 +2505,114 @@
     });
     document.addEventListener("click", (e) => {
       if (e.target.matches(".counter-btn")) setTimeout(debouncedSave, 50);
+    });
+
+    /* ── Excel Export / Import (SheetJS) ── */
+    const xlsxScript = document.createElement("script");
+    xlsxScript.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+    document.head.appendChild(xlsxScript);
+
+    document.getElementById("export-btn").addEventListener("click", () => {
+      if (typeof XLSX === "undefined") { alert("Excel library still loading, please try again in a moment."); return; }
+
+      const wb = XLSX.utils.book_new();
+
+      /* Pokemon sheet */
+      const pokemonRows = [];
+      document.querySelectorAll("#pokemon-cards .card").forEach(card => {
+        const name = card.querySelector(".name")?.textContent?.trim() || "";
+        const badge = card.querySelector(".stage-badge");
+        const stage = badge ? badge.dataset.stage : "";
+        const cb = card.querySelector(".checkbox");
+        const ctr = card.querySelector(".counter-value");
+        pokemonRows.push({
+          Name: name,
+          Stage: stage,
+          Owned: cb && cb.checked ? "Yes" : "No",
+          Quantity: ctr ? parseInt(ctr.value) || 0 : 0
+        });
+      });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pokemonRows), "Pokemon");
+
+      /* TCG sheets */
+      ["trainers", "energy", "stadiums"].forEach(sec => {
+        const rows = [];
+        document.querySelectorAll(`#${sec} .tcg-card`).forEach(card => {
+          const name = card.dataset.tcgName || card.querySelector(".name")?.textContent?.trim() || "";
+          const cb = card.querySelector(".template-checkbox");
+          const ctr = card.querySelector(".counter-value");
+          rows.push({
+            Name: name,
+            Owned: cb && cb.checked ? "Yes" : "No",
+            Quantity: ctr ? parseInt(ctr.value) || 0 : 0
+          });
+        });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), sec.charAt(0).toUpperCase() + sec.slice(1));
+      });
+
+      XLSX.writeFile(wb, "Pokemon_Collection_Progress.xlsx");
+    });
+
+    /* Import */
+    const importFileInput = document.getElementById("import-file");
+    document.getElementById("import-btn").addEventListener("click", () => importFileInput.click());
+    importFileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (typeof XLSX === "undefined") { alert("Excel library still loading, please try again."); return; }
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const wb = XLSX.read(evt.target.result, { type: "array" });
+
+          /* Build lookup maps from sheets */
+          const toMap = (sheetName) => {
+            const ws = wb.Sheets[sheetName];
+            if (!ws) return {};
+            const rows = XLSX.utils.sheet_to_json(ws);
+            const map = {};
+            rows.forEach(r => { if (r.Name) map[r.Name] = r; });
+            return map;
+          };
+
+          /* Pokemon */
+          const pokeMap = toMap("Pokemon");
+          document.querySelectorAll("#pokemon-cards .card").forEach(card => {
+            const name = card.querySelector(".name")?.textContent?.trim();
+            if (!name || !pokeMap[name]) return;
+            const row = pokeMap[name];
+            const cb = card.querySelector(".checkbox");
+            const ctr = card.querySelector(".counter-value");
+            if (cb) cb.checked = (row.Owned === "Yes");
+            if (ctr) ctr.value = parseInt(row.Quantity) || 0;
+          });
+
+          /* TCG sections */
+          ["trainers", "energy", "stadiums"].forEach(sec => {
+            const sheetName = sec.charAt(0).toUpperCase() + sec.slice(1);
+            const map = toMap(sheetName);
+            document.querySelectorAll(`#${sec} .tcg-card`).forEach(card => {
+              const name = card.dataset.tcgName || card.querySelector(".name")?.textContent?.trim();
+              if (!name || !map[name]) return;
+              const row = map[name];
+              const cb = card.querySelector(".template-checkbox");
+              const ctr = card.querySelector(".counter-value");
+              if (cb) cb.checked = (row.Owned === "Yes");
+              if (ctr) ctr.value = parseInt(row.Quantity) || 0;
+            });
+          });
+
+          updateDashboard();
+          saveState();
+          alert("✅ Collection loaded from Excel!");
+        } catch (err) {
+          alert("❌ Could not read file. Make sure it's a valid Excel file exported from this app.");
+          console.error(err);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      importFileInput.value = "";
     });
   </script>
 </body>

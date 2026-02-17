@@ -767,7 +767,8 @@
     .chain.hidden-by-legendary,
     .tcg-card.hidden-by-legendary,
     .chain.hidden-by-filter,
-    .tcg-card.hidden-by-filter {
+    .tcg-card.hidden-by-filter,
+    .card.hidden-by-filter {
       display: none;
     }
 
@@ -2420,7 +2421,12 @@
         let show = false;
 
         if (activeFilter === 'found') {
-          show = Array.from(cards).some(cardIsFound);
+          /* Hide individual unfound cards, show chain if any card is found */
+          cards.forEach(c => {
+            const found = cardIsFound(c);
+            c.classList.toggle('hidden-by-filter', !found);
+            if (found) show = true;
+          });
         } else if (activeFilter === 'dupes') {
           show = Array.from(cards).some(c => {
             const ctr = c.querySelector('.counter-value');

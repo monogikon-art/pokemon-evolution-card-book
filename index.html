@@ -765,7 +765,9 @@
     .template-row.hidden-by-search,
     .tcg-card.hidden-by-search,
     .chain.hidden-by-legendary,
-    .tcg-card.hidden-by-legendary {
+    .tcg-card.hidden-by-legendary,
+    .chain.hidden-by-filter,
+    .tcg-card.hidden-by-filter {
       display: none;
     }
 
@@ -938,6 +940,9 @@
   </div>
   <div class="filter-bar" id="filter-bar">
     <button class="filter-btn" id="filter-legendary">⭐ Legendary &amp; Mythical</button>
+    <button class="filter-btn" id="filter-found">✅ Found</button>
+    <button class="filter-btn" id="filter-dupes">🔢 Duplicates</button>
+    <button class="filter-btn" id="filter-evo">🔗 Evolutions</button>
   </div>
 
   <section class="chains" id="pokemon-cards">
@@ -2343,6 +2348,14 @@
     legendaryBtn.addEventListener("click", () => {
       legendaryFilterActive = !legendaryFilterActive;
       legendaryBtn.classList.toggle("active", legendaryFilterActive);
+      /* Turn off collection filters when legendary activates */
+      if (legendaryFilterActive && activeFilter) {
+        activeFilter = null;
+        filterFoundBtn.classList.remove('active');
+        filterDupesBtn.classList.remove('active');
+        filterEvoBtn.classList.remove('active');
+        document.querySelectorAll('.hidden-by-filter').forEach(el => el.classList.remove('hidden-by-filter'));
+      }
       applyLegendaryFilter();
     });
 
@@ -2365,6 +2378,82 @@
       /* Hide TCG sections when legendary filter is on */
       document.querySelectorAll(".tcg-card").forEach(c => c.classList.add("hidden-by-legendary"));
     };
+
+    /* ── Collection filters: Found / Duplicates / Evolutions ── */
+    let activeFilter = null; /* 'found' | 'dupes' | 'evo' | null */
+    const filterFoundBtn = document.getElementById('filter-found');
+    const filterDupesBtn = document.getElementById('filter-dupes');
+    const filterEvoBtn = document.getElementById('filter-evo');
+
+    const setActiveFilter = (name) => {
+      activeFilter = activeFilter === name ? null : name;
+      filterFoundBtn.classList.toggle('active', activeFilter === 'found');
+      filterDupesBtn.classList.toggle('active', activeFilter === 'dupes');
+      filterEvoBtn.classList.toggle('active', activeFilter === 'evo');
+      /* Turn off legendary filter when another filter activates */
+      if (activeFilter && legendaryFilterActive) {
+        legendaryFilterActive = false;
+        legendaryBtn.classList.remove('active');
+        document.querySelectorAll('.hidden-by-legendary').forEach(el => el.classList.remove('hidden-by-legendary'));
+      }
+      applyCollectionFilter();
+    };
+
+    const cardIsFound = (card) => {
+      const cb = card.querySelector('.checkbox, .template-checkbox');
+      const ctr = card.querySelector('.counter-value');
+      return (cb && cb.checked) || (ctr && (parseInt(ctr.value) || 0) > 0);
+    };
+
+    const applyCollectionFilter = () => {
+      /* Clear previous filter */
+      document.querySelectorAll('.hidden-by-filter').forEach(el => el.classList.remove('hidden-by-filter'));
+
+      if (!activeFilter) {
+        performSearch(); /* re-apply search */
+        return;
+      }
+
+      /* Pokemon chains */
+      document.querySelectorAll('#pokemon-cards .chain').forEach(chain => {
+        const cards = chain.querySelectorAll('.card');
+        let show = false;
+
+        if (activeFilter === 'found') {
+          show = Array.from(cards).some(cardIsFound);
+        } else if (activeFilter === 'dupes') {
+          show = Array.from(cards).some(c => {
+            const ctr = c.querySelector('.counter-value');
+            return ctr && (parseInt(ctr.value) || 0) > 1;
+          });
+        } else if (activeFilter === 'evo') {
+          /* Show chains with 2+ cards (actual evolutions) */
+          show = cards.length >= 2;
+        }
+
+        chain.classList.toggle('hidden-by-filter', !show);
+        if (show) chain.classList.remove('hidden-by-search');
+      });
+
+      /* TCG cards (Trainers, Energy, Stadiums) */
+      document.querySelectorAll('.tcg-card').forEach(card => {
+        let show = false;
+        if (activeFilter === 'found') {
+          show = cardIsFound(card);
+        } else if (activeFilter === 'dupes') {
+          const ctr = card.querySelector('.counter-value');
+          show = ctr && (parseInt(ctr.value) || 0) > 1;
+        } else if (activeFilter === 'evo') {
+          show = false; /* TCG cards don't have evolutions */
+        }
+        card.classList.toggle('hidden-by-filter', !show);
+        if (show) card.classList.remove('hidden-by-search');
+      });
+    };
+
+    filterFoundBtn.addEventListener('click', () => setActiveFilter('found'));
+    filterDupesBtn.addEventListener('click', () => setActiveFilter('dupes'));
+    filterEvoBtn.addEventListener('click', () => setActiveFilter('evo'));
 
     /* ── Dashboard logic ── */
     const updateDashboard = () => {

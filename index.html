@@ -2363,7 +2363,7 @@
     const applyLegendaryFilter = () => {
       if (!legendaryFilterActive) {
         /* Remove filter — restore to search state */
-        document.querySelectorAll(".chain.hidden-by-legendary").forEach(el => el.classList.remove("hidden-by-legendary"));
+        document.querySelectorAll(".hidden-by-legendary").forEach(el => el.classList.remove("hidden-by-legendary"));
         performSearch(); /* re-apply search if active */
         return;
       }
@@ -2466,8 +2466,12 @@
       /* --- Row 1: Total cards with duplicates (counter values) --- */
       let totalPokemon = 0, totalTrainers = 0, totalEnergy = 0, totalStadiums = 0;
 
-      /* Pokemon: sum counter values on .card elements */
+      /* Pokemon: sum counter values — deduplicate by name */
+      const countedRow1 = new Set();
       document.querySelectorAll("#pokemon-cards .card").forEach(card => {
+        const name = card.querySelector(".name")?.textContent?.trim();
+        if (countedRow1.has(name)) return;
+        countedRow1.add(name);
         const v = card.querySelector(".counter-value");
         totalPokemon += v ? parseInt(v.value) || 0 : 0;
       });
@@ -2494,10 +2498,14 @@
       document.getElementById("dash-total-stadiums").textContent = totalStadiums;
 
       /* --- Row 2: Distinct found / total by category --- */
-      /* Pokemon by stage: checked checkbox OR counter > 0 means "found" */
+      /* Pokemon by stage: checked checkbox OR counter > 0 means "found" — deduplicate by name */
       const stageCount = { "Basic": { found: 0, total: 0 }, "Stage 1": { found: 0, total: 0 }, "Stage 2": { found: 0, total: 0 } };
+      const countedRow2 = new Set();
 
       document.querySelectorAll("#pokemon-cards .card").forEach(card => {
+        const name = card.querySelector(".name")?.textContent?.trim();
+        if (countedRow2.has(name)) return;
+        countedRow2.add(name);
         const badge = card.querySelector(".stage-badge");
         const stage = badge ? badge.dataset.stage : null;
         /* Map Baby/Legendary/Mythical to Basic for dashboard grouping */
@@ -2560,6 +2568,27 @@
       setDash("dash-evo-sets", completeSets, totalSets);
     };
 
+    /* Sync duplicate Pokemon cards across chains */
+    const syncDuplicates = (sourceCard) => {
+      const section = sourceCard.closest('#pokemon-cards');
+      if (!section) return;
+      const name = sourceCard.querySelector('.name')?.textContent?.trim();
+      if (!name) return;
+      const cb = sourceCard.querySelector('.checkbox');
+      const ctr = sourceCard.querySelector('.counter-value');
+      const checked = cb ? cb.checked : false;
+      const qty = ctr ? ctr.value : '0';
+      section.querySelectorAll('.card').forEach(card => {
+        if (card === sourceCard) return;
+        const n = card.querySelector('.name')?.textContent?.trim();
+        if (n !== name) return;
+        const oCb = card.querySelector('.checkbox');
+        const oCtr = card.querySelector('.counter-value');
+        if (oCb && oCb.checked !== checked) oCb.checked = checked;
+        if (oCtr && oCtr.value !== qty) oCtr.value = qty;
+      });
+    };
+
     /* Sync checkbox ↔ counter: checking sets counter to at least 1, unchecking sets to 0 */
     document.addEventListener("change", (e) => {
       if (e.target.matches(".checkbox, .template-checkbox")) {
@@ -2573,12 +2602,23 @@
               ctr.value = 0;
             }
           }
+          syncDuplicates(card);
         }
+      }
+      if (e.target.matches(".counter-value")) {
+        const card = e.target.closest(".card");
+        if (card) syncDuplicates(card);
       }
       if (e.target.matches(".checkbox, .template-checkbox, .counter-value")) updateDashboard();
     });
     document.addEventListener("click", (e) => {
-      if (e.target.matches(".counter-btn")) setTimeout(updateDashboard, 10);
+      if (e.target.matches(".counter-btn")) {
+        setTimeout(() => {
+          const card = e.target.closest('.card');
+          if (card) syncDuplicates(card);
+          updateDashboard();
+        }, 10);
+      }
     });
 
     /* Initial calc */
